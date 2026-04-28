@@ -21,6 +21,9 @@ jobs:
 
       - name: Verify app imports
         run: python -c "from app.main import app; print('✓ App imports successfully')"
+        env:
+          DATABASE_URL: postgresql+asyncpg://user:password@localhost:5432/chipulse_dev
+          SECRET_KEY: test-secret-key
 
   frontend:
     name: Frontend (Node LTS)
