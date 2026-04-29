@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from app.database import AsyncSessionLocal
+from app.database import AsyncSessionLocal, db_is_configured
 from app.routers import events as events_router
 
 app = FastAPI(title="ChiPulse API", version="0.1.0")
@@ -21,6 +21,8 @@ app.include_router(events_router.router)
 
 @app.get("/health")
 async def health():
+    if not db_is_configured():
+        return {"status": "healthy", "database": "not configured (using adapters)"}
     try:
         async with AsyncSessionLocal() as session:
             await session.execute(text("SELECT 1"))
