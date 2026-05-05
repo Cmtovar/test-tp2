@@ -1,6 +1,6 @@
 from app.database import get_session_or_none
 from app.main import app
-from tests.conftest import FakeRow, FakeResult, FakeSession  # noqa: F401 (FakeResult re-exported for clarity)
+from tests.conftest import FakeRow, FakeSession  # noqa: F401
 
 
 def test_list_events_returns_data_and_count(client, sample_event_mapping):
