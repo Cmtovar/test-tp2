@@ -1,129 +1,181 @@
 """Ticketmaster Discovery API adapter."""
 
+import uuid
 from datetime import datetime
+from decimal import Decimal
+
+import requests
 
 from app.adapters.base import EventSourceAdapter
+
+
+# Map Ticketmaster segment names to our categories
+CATEGORY_MAP = {
+    "Music": "music",
+    "Sports": "sports",
+    "Arts & Theatre": "theater",
+    "Film": "arts",
+    "Miscellaneous": "community",
+    "Undefined": "community",
+}
 
 
 class TicketmasterAdapter(EventSourceAdapter):
     """
     Adapter for Ticketmaster Discovery API.
-    
+
     Fetches events from Ticketmaster and normalizes them to ChiPulse format.
-    
+
     Docs: https://developer.ticketmaster.com/products-and-docs/apis/discovery-api/v2/
     """
 
     def __init__(self, api_key: str):
-        """
-        Initialize Ticketmaster adapter.
-        
-        Args:
-            api_key: Ticketmaster Discovery API key
-        """
         self.api_key = api_key
         self.base_url = "https://app.ticketmaster.com/discovery/v2"
 
     @property
     def source_name(self) -> str:
-        """Return source identifier."""
         return "ticketmaster"
 
     def fetch_events(
         self,
-        start_date: datetime,
-        end_date: datetime,
-        location: str,
-        **kwargs
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        location: str = "Chicago",
+        **kwargs,
     ) -> list[dict]:
-        """
-        Fetch events from Ticketmaster Discovery API.
-        
-        TODO (Sprint 3):
-            - Implement actual API calls using requests library
-            - Handle pagination (API returns max 200 per call)
-            - Parse start_date/end_date into Ticketmaster format
-            - Pass location to city parameter
-            - Handle optional kwargs (category filters, etc.)
-            - Implement retry logic for rate limits
-        
-        Current behavior: Returns empty list (skeleton).
-        """
-        # TODO: Implement API call
-        # Example pseudocode:
-        # response = requests.get(
-        #     f"{self.base_url}/events.json",
-        #     params={
-        #         "apikey": self.api_key,
-        #         "city": location,
-        #         "startDateTime": start_date.isoformat(),
-        #         "endDateTime": end_date.isoformat(),
-        #         "size": 200
-        #     }
-        # )
-        # return response.json().get("_embedded", {}).get("events", [])
-        
-        return []
+        """Fetch events from Ticketmaster Discovery API."""
+        params = {
+            "apikey": self.api_key,
+            "city": location,
+            "stateCode": "IL",
+            "size": 50,
+            "sort": "date,asc",
+        }
+        if start_date:
+            params["startDateTime"] = start_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+        if end_date:
+            params["endDateTime"] = end_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        response = requests.get(
+            f"{self.base_url}/events.json",
+            params=params,
+            timeout=15,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data.get("_embedded", {}).get("events", [])
 
     def normalize_event(self, raw_event: dict) -> dict:
-        """
-        Convert Ticketmaster event to ChiPulse format.
-        
-        Maps Ticketmaster's event structure to your database schema.
-        
-        TODO (Sprint 3):
-            - Extract title from raw_event["name"]
-            - Extract dates from raw_event["dates"]["start"]
-            - Map Ticketmaster classification → your categories
-              (Ticketmaster has 100s of categories, map to: 
-               music, sports, theater, community, food, arts, family)
-            - Extract venue info from raw_event["_embedded"]["venues"][0]
-            - Extract lat/lng from venue.location
-            - Extract prices from raw_event["priceRanges"]
-            - Extract images and URLs
-            - Store raw_event in raw_data field
-        
-        Current behavior: Returns template structure (empty values).
-        """
-        # TODO: Implement normalization
-        # Example structure (placeholder):
-        normalized = {
+        """Convert Ticketmaster event to ChiPulse EventOut format."""
+        # Venue info
+        venues = raw_event.get("_embedded", {}).get("venues", [])
+        venue = venues[0] if venues else {}
+        venue_location = venue.get("location", {})
+
+        lat = None
+        lng = None
+        if venue_location.get("latitude") and venue_location.get("longitude"):
+            try:
+                lat = float(venue_location["latitude"])
+                lng = float(venue_location["longitude"])
+            except (ValueError, TypeError):
+                pass
+
+        # Address
+        address_obj = venue.get("address", {})
+        city_obj = venue.get("city", {})
+        state_obj = venue.get("state", {})
+        address_parts = [
+            address_obj.get("line1", ""),
+            city_obj.get("name", ""),
+            state_obj.get("stateCode", ""),
+        ]
+        venue_address = ", ".join(p for p in address_parts if p) or None
+
+        # Dates
+        dates = raw_event.get("dates", {})
+        start_info = dates.get("start", {})
+        start_dt_str = start_info.get("dateTime")
+        start_datetime = None
+        if start_dt_str:
+            try:
+                start_datetime = datetime.fromisoformat(start_dt_str.replace("Z", "+00:00"))
+            except ValueError:
+                pass
+
+        end_info = dates.get("end", {})
+        end_dt_str = end_info.get("dateTime")
+        end_datetime = None
+        if end_dt_str:
+            try:
+                end_datetime = datetime.fromisoformat(end_dt_str.replace("Z", "+00:00"))
+            except ValueError:
+                pass
+
+        # Category from classifications
+        classifications = raw_event.get("classifications", [])
+        classification = classifications[0] if classifications else {}
+        segment_name = classification.get("segment", {}).get("name", "")
+        genre_name = classification.get("genre", {}).get("name")
+        category = CATEGORY_MAP.get(segment_name, "community")
+        subcategory = genre_name if genre_name and genre_name != "Undefined" else None
+
+        # Prices
+        price_ranges = raw_event.get("priceRanges", [])
+        price_min = None
+        price_max = None
+        is_free = None
+        if price_ranges:
+            price_min = Decimal(str(price_ranges[0].get("min", 0)))
+            price_max = Decimal(str(price_ranges[0].get("max", 0)))
+            is_free = price_min == 0 and price_max == 0
+
+        # Image — pick the largest
+        images = raw_event.get("images", [])
+        image_url = None
+        if images:
+            best = max(images, key=lambda img: img.get("width", 0) * img.get("height", 0))
+            image_url = best.get("url")
+
+        # Tags from genre/subGenre
+        tags = []
+        if genre_name and genre_name != "Undefined":
+            tags.append(genre_name)
+        sub_genre = classification.get("subGenre", {}).get("name")
+        if sub_genre and sub_genre != "Undefined":
+            tags.append(sub_genre)
+
+        # Generate a deterministic UUID from the ticketmaster ID
+        source_id = raw_event.get("id", "")
+        event_uuid = uuid.uuid5(uuid.NAMESPACE_URL, f"ticketmaster:{source_id}")
+
+        return {
+            "id": event_uuid,
+            "title": raw_event.get("name", "Untitled Event"),
+            "description": raw_event.get("info") or raw_event.get("pleaseNote"),
+            "category": category,
+            "subcategory": subcategory,
+            "start_datetime": start_datetime or datetime.now(),
+            "end_datetime": end_datetime,
+            "venue_name": venue.get("name"),
+            "venue_address": venue_address,
+            "neighborhood": venue.get("markets", [{}])[0].get("name") if venue.get("markets") else None,
+            "lat": lat,
+            "lng": lng,
+            "price_min": price_min,
+            "price_max": price_max,
+            "is_free": is_free,
+            "ticket_url": raw_event.get("url"),
+            "source_url": raw_event.get("url"),
             "source": self.source_name,
-            "source_id": None,  # TODO: raw_event.get("id")
-            "title": None,  # TODO: raw_event.get("name")
-            "description": None,
-            "category": None,  # TODO: Map from classifications
-            "subcategory": None,
-            "start_datetime": None,  # TODO: Parse dates
-            "end_datetime": None,
-            "venue_name": None,
-            "venue_address": None,
-            "neighborhood": None,
-            "location": None,  # TODO: (lat, lng) tuple
-            "price_min": None,
-            "price_max": None,
-            "is_free": False,
-            "ticket_url": None,
-            "source_url": None,  # TODO: raw_event.get("url")
-            "image_url": None,
-            "tags": [],
-            "raw_data": raw_event,  # Store original for debugging
+            "image_url": image_url,
+            "status": "active",
+            "tags": tags if tags else None,
+            "popularity": None,
         }
-        return normalized
 
     def validate_event(self, normalized_event: dict) -> bool:
-        """
-        Check that normalized event has required fields.
-        
-        Required: source, source_id, title, start_datetime
-        
-        TODO (Sprint 3):
-            - Validate required fields exist
-            - Validate datetime format
-            - Validate location is valid (lat/lng in range)
-            - Return False if any validation fails
-        
-        Current behavior: Validates presence of required fields only.
-        """
-        required = ["source", "source_id", "title", "start_datetime"]
+        """Check that normalized event has required fields."""
+        required = ["id", "title", "start_datetime", "source"]
         return all(normalized_event.get(field) for field in required)
