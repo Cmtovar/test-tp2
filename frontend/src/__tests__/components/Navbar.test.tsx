@@ -28,4 +28,15 @@ describe('Navbar', () => {
     fireEvent.click(screen.getByRole('link', { name: 'My Events' }))
     expect(await screen.findByText('My Events — coming soon')).toBeTruthy()
   })
+
+  it('does not show coming soon toast for implemented Home page', () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Navbar />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('link', { name: 'Home' }))
+    expect(screen.queryByText(/coming soon/i)).toBeNull()
+  })
 })

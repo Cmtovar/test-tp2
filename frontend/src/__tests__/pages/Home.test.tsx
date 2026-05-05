@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import Home from '../../pages/Home'
 import { mockEvents } from '../../data/mockEvents'
@@ -11,6 +11,10 @@ vi.mock('../../api/events', () => ({
 }))
 
 describe('Home', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
   it('renders events returned by fetchEvents', async () => {
     vi.mocked(fetchEvents).mockResolvedValue([mockEvents[0]])
 
@@ -34,5 +38,31 @@ describe('Home', () => {
     )
 
     expect(await screen.findByText('No events found')).toBeTruthy()
+  })
+
+  it('shows loading state while events request is pending', () => {
+    vi.mocked(fetchEvents).mockReturnValue(new Promise(() => {}))
+
+    render(
+      <MemoryRouter>
+        <Home />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByText('Loading events...')).toBeTruthy()
+  })
+
+  it('renders disabled location input', () => {
+    vi.mocked(fetchEvents).mockResolvedValue([mockEvents[0]])
+
+    render(
+      <MemoryRouter>
+        <Home />
+      </MemoryRouter>,
+    )
+
+    const input = screen.getByPlaceholderText('city / zip code')
+    expect(input).toBeTruthy()
+    expect(input.getAttribute('disabled')).not.toBeNull()
   })
 })
