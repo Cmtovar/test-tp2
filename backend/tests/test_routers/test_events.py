@@ -1,4 +1,4 @@
-from app.database import get_session
+from app.database import get_session_or_none
 from app.main import app
 from tests.conftest import FakeRow
 
@@ -28,7 +28,7 @@ def test_list_events_returns_data_and_count(client, sample_event_mapping):
     async def override_get_session():
         yield FakeSession(rows=[FakeRow(sample_event_mapping)])
 
-    app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_session_or_none] = override_get_session
 
     try:
         response = client.get("/api/events")
@@ -47,7 +47,7 @@ def test_list_events_returns_empty_collection_when_no_rows(client):
     async def override_get_session():
         yield FakeSession(rows=[])
 
-    app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_session_or_none] = override_get_session
 
     try:
         response = client.get("/api/events")
@@ -64,7 +64,7 @@ def test_get_event_returns_event_when_found(client, sample_event_mapping):
     async def override_get_session():
         yield FakeSession(row=FakeRow(sample_event_mapping))
 
-    app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_session_or_none] = override_get_session
 
     try:
         response = client.get(f"/api/events/{sample_event_mapping['id']}")
@@ -82,7 +82,7 @@ def test_get_event_returns_not_found_when_event_missing(client):
     async def override_get_session():
         yield FakeSession(row=None)
 
-    app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_session_or_none] = override_get_session
 
     try:
         response = client.get("/api/events/00000000-0000-0000-0000-000000000001")

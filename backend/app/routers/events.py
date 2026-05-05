@@ -2,14 +2,15 @@ import logging
 import time
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.ticketmaster_adapter import TicketmasterAdapter
 from app.config import settings
 from app.data.mock_events import MOCK_EVENTS
-from app.database import db_is_configured, get_session
+from app.database import get_session_or_none
 from app.schemas.event import ErrorDetail, ErrorResponse, EventListResponse, EventOut
 
 logger = logging.getLogger(__name__)
@@ -87,16 +88,15 @@ def _fetch_ticketmaster_events() -> list[EventOut]:
 
 
 @router.get("", response_model=EventListResponse)
-async def list_events():
-    # Try database first if configured
-    if db_is_configured():
+async def list_events(session: AsyncSession | None = Depends(get_session_or_none)):
+    # Try database first if a session is available
+    if session is not None:
         try:
-            async for s in get_session():
-                query = text(f"SELECT {EVENT_SELECT_COLUMNS} FROM events ORDER BY start_datetime ASC")
-                result = await s.execute(query)
-                rows = result.fetchall()
-                items = [_row_to_event(r) for r in rows]
-                return EventListResponse(data=items, count=len(items))
+            query = text(f"SELECT {EVENT_SELECT_COLUMNS} FROM events ORDER BY start_datetime ASC")
+            result = await session.execute(query)
+            rows = result.fetchall()
+            items = [_row_to_event(r) for r in rows]
+            return EventListResponse(data=items, count=len(items))
         except Exception:
             logger.warning("Database query failed, falling back to Ticketmaster adapter")
 
@@ -110,20 +110,26 @@ async def list_events():
     response_model=EventOut,
     responses={404: {"model": ErrorResponse}},
 )
-async def get_event(event_id: UUID):
-    # Try database first if configured
-    if db_is_configured():
+async def get_event(event_id: UUID, session: AsyncSession | None = Depends(get_session_or_none)):
+    # Try database first if a session is available
+    if session is not None:
         try:
-            async for s in get_session():
-                query = text(f"SELECT {EVENT_SELECT_COLUMNS} FROM events WHERE id = :id")
-                result = await s.execute(query, {"id": str(event_id)})
-                row = result.fetchone()
-                if row is not None:
-                    return _row_to_event(row)
+            query = text(f"SELECT {EVENT_SELECT_COLUMNS} FROM events WHERE id = :id")
+            result = await session.execute(query, {"id": str(event_id)})
+            row = result.fetchone()
+            if row is not None:
+                return _row_to_event(row)
+            # DB succeeded but no matching row — definitive not found
+            return JSONResponse(
+                status_code=404,
+                content=ErrorResponse(
+                    error=ErrorDetail(code="NOT_FOUND", message="Event not found")
+                ).model_dump(),
+            )
         except Exception:
             logger.warning("Database query failed, falling back to Ticketmaster adapter")
 
-    # Fallback: search cached/fetched events for matching ID
+    # Only reached when session is None or DB threw an exception
     items = _fetch_ticketmaster_events()
     for item in items:
         if item.id == event_id:
