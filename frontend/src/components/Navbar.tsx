@@ -5,7 +5,7 @@ import Toast from './Toast'
 const navItems = [
   { label: 'Home', path: '/', implemented: true },
   { label: 'My Events', path: '/my-events', implemented: false },
-  { label: 'Profile', path: '/profile', implemented: false },
+  { label: 'Profile', path: '/login', implemented: true },
 ]
 
 export default function Navbar() {
