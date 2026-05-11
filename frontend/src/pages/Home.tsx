@@ -40,30 +40,19 @@ export default function Home() {
         <aside className="w-48 flex-shrink-0">
           <h3 className="text-sm font-semibold text-gray-700 mb-3">Filters</h3>
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm text-gray-600 mb-1">$</label>
-              <select disabled className="w-full px-2 py-1.5 border border-gray-200 rounded-md text-sm text-gray-400 bg-gray-50 cursor-not-allowed">
-                <option>Any price</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm text-gray-600 mb-1">Distance</label>
-              <select disabled className="w-full px-2 py-1.5 border border-gray-200 rounded-md text-sm text-gray-400 bg-gray-50 cursor-not-allowed">
-                <option>Any distance</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm text-gray-600 mb-1">Date</label>
-              <select disabled className="w-full px-2 py-1.5 border border-gray-200 rounded-md text-sm text-gray-400 bg-gray-50 cursor-not-allowed">
-                <option>Any date</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm text-gray-600 mb-1">Category</label>
-              <select disabled className="w-full px-2 py-1.5 border border-gray-200 rounded-md text-sm text-gray-400 bg-gray-50 cursor-not-allowed">
-                <option>All categories</option>
-              </select>
-            </div>
+            {[
+              { label: '$', value: 'Any price' },
+              { label: 'Distance', value: 'Any distance' },
+              { label: 'Date', value: 'Any date' },
+              { label: 'Category', value: 'All categories' },
+            ].map((f) => (
+              <div key={f.label}>
+                <label className="block text-sm text-gray-600 mb-1">{f.label}</label>
+                <div className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-400 cursor-not-allowed">
+                  {f.value}
+                </div>
+              </div>
+            ))}
           </div>
           <p className="text-xs text-gray-400 mt-4">No filtering applied</p>
         </aside>
