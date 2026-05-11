@@ -1,17 +1,24 @@
 import { useEffect, useState } from 'react'
 import EventCard from '../components/EventCard'
 import { fetchEvents } from '../api/events'
+import { getSavedIds, toggleSave } from '../utils/savedEvents'
 import type { Event } from '../types/event'
 
 export default function Home() {
   const [events, setEvents] = useState<Event[]>([])
   const [loading, setLoading] = useState(true)
+  const [savedIds, setSavedIds] = useState<Set<string>>(getSavedIds)
 
   useEffect(() => {
     fetchEvents()
       .then(setEvents)
       .finally(() => setLoading(false))
   }, [])
+
+  function handleSaveToggle(id: string) {
+    toggleSave(id)
+    setSavedIds(getSavedIds())
+  }
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-6">
@@ -36,7 +43,12 @@ export default function Home() {
       ) : (
         <div className="flex flex-col gap-4">
           {events.map((event) => (
-            <EventCard key={event.id} event={event} />
+            <EventCard
+              key={event.id}
+              event={event}
+              isSaved={savedIds.has(event.id)}
+              onSaveToggle={handleSaveToggle}
+            />
           ))}
         </div>
       )}
