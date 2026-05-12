@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import EventCard from '../components/EventCard'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/useAuth'
 import { getSavedEvents, unsaveEvent } from '../api/saves'
 import type { SavedEventEntry } from '../api/saves'
 
@@ -18,10 +18,10 @@ export default function MyEvents() {
   useEffect(() => {
     if (authLoading) return
     if (!isAuthenticated || !token) {
-      setLoading(false)
+      queueMicrotask(() => setLoading(false))
       return
     }
-    setLoading(true)
+    queueMicrotask(() => setLoading(true))
     getSavedEvents(token)
       .then((res) => setEntries(res.data))
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load saved events'))

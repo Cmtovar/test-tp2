@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import EventCard from '../components/EventCard'
 import { fetchEvents } from '../api/events'
 import { getSavedEvents, saveEvent, unsaveEvent } from '../api/saves'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/useAuth'
 import type { Event } from '../types/event'
 
 export default function Home() {
@@ -22,7 +22,7 @@ export default function Home() {
   useEffect(() => {
     if (authLoading) return
     if (!isAuthenticated || !token) {
-      setSavedIds(new Set())
+      queueMicrotask(() => setSavedIds(new Set()))
       return
     }
     getSavedEvents(token)

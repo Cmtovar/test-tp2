@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { fetchEventById } from '../api/events'
 import { checkSaved, saveEvent, unsaveEvent } from '../api/saves'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/useAuth'
 import type { Event } from '../types/event'
 
 function formatDate(datetime: string): string {
@@ -43,7 +43,7 @@ export default function EventDetail() {
   useEffect(() => {
     if (authLoading || !id) return
     if (!isAuthenticated || !token) {
-      setIsSaved(false)
+      queueMicrotask(() => setIsSaved(false))
       return
     }
     checkSaved(token, id)
