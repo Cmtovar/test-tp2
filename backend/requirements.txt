@@ -6,6 +6,9 @@ geoalchemy2
 python-dotenv
 pydantic-settings
 psycopg2-binary
+passlib[bcrypt]
+python-jose[cryptography]
+email-validator
 pytest
 pytest-asyncio
 pytest-cov

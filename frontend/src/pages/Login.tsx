@@ -1,18 +1,31 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 
 export default function Login() {
-  const [username, setUsername] = useState('')
+  const navigate = useNavigate()
+  const { login } = useAuth()
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!username || !password) {
+    setError(null)
+    if (!email || !password) {
       setError('Please fill in all fields')
       return
     }
-    setError('Auth not yet implemented')
+    setSubmitting(true)
+    try {
+      await login(email, password)
+      navigate('/')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -27,11 +40,12 @@ export default function Login() {
         )}
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Username:</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Email:</label>
           <input
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
             className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-400"
           />
         </div>
@@ -42,6 +56,7 @@ export default function Login() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
             className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-400"
           />
         </div>
@@ -52,9 +67,10 @@ export default function Login() {
 
         <button
           type="submit"
-          className="w-full py-2 bg-gray-900 text-white rounded-md font-medium hover:bg-gray-800 transition-colors cursor-pointer"
+          disabled={submitting}
+          className="w-full py-2 bg-gray-900 text-white rounded-md font-medium hover:bg-gray-800 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          Log in
+          {submitting ? 'Logging in...' : 'Log in'}
         </button>
       </form>
 

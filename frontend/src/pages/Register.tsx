@@ -1,7 +1,10 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 
 export default function Register() {
+  const navigate = useNavigate()
+  const { register } = useAuth()
   const [form, setForm] = useState({
     firstName: '',
     lastName: '',
@@ -10,18 +13,33 @@ export default function Register() {
     password: '',
   })
   const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
 
   function handleChange(field: string, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }))
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    setError(null)
     if (!form.firstName || !form.lastName || !form.username || !form.email || !form.password) {
       setError('Please fill in all fields')
       return
     }
-    setError('Auth not yet implemented')
+    if (form.password.length < 6) {
+      setError('Password must be at least 6 characters')
+      return
+    }
+    const displayName = `${form.firstName.trim()} ${form.lastName.trim()}`.trim()
+    setSubmitting(true)
+    try {
+      await register(form.email, form.password, displayName)
+      navigate('/')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Registration failed')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const fields = [
@@ -57,9 +75,10 @@ export default function Register() {
 
         <button
           type="submit"
-          className="w-full py-2 bg-gray-900 text-white rounded-md font-medium hover:bg-gray-800 transition-colors cursor-pointer"
+          disabled={submitting}
+          className="w-full py-2 bg-gray-900 text-white rounded-md font-medium hover:bg-gray-800 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          Register
+          {submitting ? 'Creating account...' : 'Register'}
         </button>
       </form>
 
