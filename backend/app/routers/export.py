@@ -3,7 +3,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse
+from sqlalchemy import text
 
+from app.database import db_is_configured, get_session
 from app.routers.events import _fetch_ticketmaster_events
 
 logger = logging.getLogger(__name__)
@@ -16,15 +18,33 @@ async def export_event_ics(event_id: UUID):
     """Export a single event as a .ics calendar file."""
 
     event = None
-    items = _fetch_ticketmaster_events()
-    for item in items:
-        if item.id == event_id:
-            event = item.model_dump()
-            break
+
+    # Try database first
+    if db_is_configured():
+        try:
+            async for s in get_session():
+                result = await s.execute(
+                    text("SELECT * FROM events WHERE id = :id"),
+                    {"id": str(event_id)}
+                )
+                row = result.fetchone()
+                if row:
+                    event = dict(row._mapping)
+        except Exception:
+            logger.warning("DB lookup failed for export, falling back to cache")
+
+    # Fall back to in-memory cache
+    if event is None:
+        items = _fetch_ticketmaster_events()
+        for item in items:
+            if item.id == event_id:
+                event = item.model_dump()
+                break
 
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
 
+    # Build .ics content
     start = event.get("start_datetime")
     end = event.get("end_datetime")
     name = event.get("title") or event.get("name") or "Event"
