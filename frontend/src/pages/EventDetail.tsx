@@ -66,6 +66,9 @@ export default function EventDetail() {
       setIsSaved(previous)
     }
   }
+  const handleExport = () => {
+    window.location.href = `http://localhost:8000/api/export/${id}`
+  }
 
   if (loading) {
     return <div className="max-w-3xl mx-auto px-6 py-12 text-center text-gray-400">Loading...</div>
@@ -144,10 +147,16 @@ export default function EventDetail() {
           {event.venue_name && <p className="text-gray-700">{event.venue_name}</p>}
           {event.venue_address && <p className="text-sm text-gray-500">{event.venue_address}</p>}
         </div>
-        <div className="text-right">
+        <div className="text-right space-y-2">
           {formatPrice(event) && (
             <p className="font-semibold text-gray-900">{formatPrice(event)}</p>
           )}
+          <button
+            onClick={handleExport}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            📅 Add to Calendar
+          </button>
         </div>
       </div>
 
