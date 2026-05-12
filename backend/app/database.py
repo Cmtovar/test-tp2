@@ -24,5 +24,14 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
+async def get_session_or_none() -> AsyncGenerator[AsyncSession | None, None]:
+    """Dependency that yields an AsyncSession when the DB is configured, or None otherwise."""
+    if AsyncSessionLocal is None:
+        yield None
+        return
+    async with AsyncSessionLocal() as session:
+        yield session
+
+
 def db_is_configured() -> bool:
     return engine is not None

@@ -5,14 +5,15 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.ticketmaster_adapter import TicketmasterAdapter
 from app.config import settings
 from app.data.mock_events import MOCK_EVENTS
-from app.database import db_is_configured, get_session
+from app.database import get_session_or_none
 from app.schemas.event import ErrorDetail, ErrorResponse, EventListResponse, EventOut
 
 logger = logging.getLogger(__name__)
@@ -277,6 +278,7 @@ async def list_events(
     radius: float | None = Query(None, description="Radius in miles (default 10 with lat/lng)"),
     q: str | None = Query(None, description="Keyword search across title/description/venue"),
     sort: Literal["date", "price", "popularity"] = Query("date", description="Sort order"),
+    session: AsyncSession | None = Depends(get_session_or_none),
 ) -> EventListResponse:
     """List events with optional filters, geo-radius, keyword search, and sorting.
 
@@ -308,14 +310,13 @@ async def list_events(
         sort=sort,
     )
 
-    if db_is_configured():
+    if session is not None:
         try:
-            async for s in get_session():
-                sql, params = _build_db_query(**filter_kwargs)
-                result = await s.execute(text(sql), params)
-                rows = result.fetchall()
-                items = [_row_to_event(r) for r in rows]
-                return EventListResponse(data=items, count=len(items))
+            sql, params = _build_db_query(**filter_kwargs)
+            result = await session.execute(text(sql), params)
+            rows = result.fetchall()
+            items = [_row_to_event(r) for r in rows]
+            return EventListResponse(data=items, count=len(items))
         except Exception:
             logger.warning("Database query failed, falling back to Ticketmaster adapter")
 
@@ -329,19 +330,26 @@ async def list_events(
     response_model=EventOut,
     responses={404: {"model": ErrorResponse}},
 )
-async def get_event(event_id: UUID):
+async def get_event(
+    event_id: UUID,
+    session: AsyncSession | None = Depends(get_session_or_none),
+):
     """Get a single event by ID."""
-    if db_is_configured():
+    if session is not None:
         try:
-            async for s in get_session():
-                query = text(f"SELECT {EVENT_SELECT_COLUMNS} FROM events WHERE id = :id")
-                result = await s.execute(query, {"id": str(event_id)})
-                row = result.fetchone()
-                if row is not None:
-                    return _row_to_event(row)
+            query = text(f"SELECT {EVENT_SELECT_COLUMNS} FROM events WHERE id = :id")
+            result = await session.execute(query, {"id": str(event_id)})
+            row = result.fetchone()
+            if row is not None:
+                return _row_to_event(row)
+            return JSONResponse(
+                status_code=404,
+                content=ErrorResponse(
+                    error=ErrorDetail(code="NOT_FOUND", message="Event not found")
+                ).model_dump(),
+            )
         except Exception:
             logger.warning("Database query failed, falling back to Ticketmaster adapter")
-
     items = _fetch_ticketmaster_events()
     for item in items:
         if item.id == event_id:
