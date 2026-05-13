@@ -3,9 +3,11 @@ import { mockEvents } from '../data/mockEvents'
 
 const API_BASE = '/api'
 
-export async function fetchEvents(): Promise<Event[]> {
+export async function fetchEvents(params: Record<string, string> = {}): Promise<Event[]> {
   try {
-    const res = await fetch(`${API_BASE}/events`)
+    const query = new URLSearchParams(params).toString()
+    const url = query ? `${API_BASE}/events?${query}` : `${API_BASE}/events`
+    const res = await fetch(url)
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data: EventListResponse = await res.json()
     return data.data
