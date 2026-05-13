@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import EventCard from '../components/EventCard'
 import { fetchEvents } from '../api/events'
@@ -13,11 +13,29 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set())
 
-  useEffect(() => {
-    fetchEvents()
+  // Filter state
+  const [search, setSearch] = useState('')
+  const [category, setCategory] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [isFree, setIsFree] = useState(false)
+  const [priceMax, setPriceMax] = useState('')
+
+  const loadEvents = useCallback(() => {
+    setLoading(true)
+    const params: Record<string, string> = {}
+    if (search) params.q = search
+    if (category) params.category = category
+    if (dateFrom) params.date_from = dateFrom
+    if (isFree) params.is_free = 'true'
+    if (priceMax) params.price_max = priceMax
+    fetchEvents(params)
       .then(setEvents)
       .finally(() => setLoading(false))
-  }, [])
+  }, [search, category, dateFrom, isFree, priceMax])
+
+  useEffect(() => {
+    loadEvents()
+  }, [loadEvents])
 
   useEffect(() => {
     if (authLoading) return
@@ -55,6 +73,8 @@ export default function Home() {
     }
   }
 
+  const hasFilters = search || category || dateFrom || isFree || priceMax
+
   return (
     <div className="max-w-6xl mx-auto px-6 py-6">
       {/* Location input */}
@@ -64,6 +84,17 @@ export default function Home() {
           placeholder="city / zip code"
           disabled
           className="px-4 py-2 border border-gray-200 rounded-md text-sm text-gray-400 bg-gray-50 cursor-not-allowed w-56"
+        />
+      </div>
+
+      {/* Search bar */}
+      <div className="mb-6">
+        <input
+          type="text"
+          placeholder="Search events..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>
 
@@ -82,21 +113,83 @@ export default function Home() {
         <aside className="w-48 flex-shrink-0">
           <h3 className="text-sm font-semibold text-gray-700 mb-3">Filters</h3>
           <div className="space-y-4">
-            {[
-              { label: '$', value: 'Any price' },
-              { label: 'Distance', value: 'Any distance' },
-              { label: 'Date', value: 'Any date' },
-              { label: 'Category', value: 'All categories' },
-            ].map((f) => (
-              <div key={f.label}>
-                <label className="block text-sm text-gray-600 mb-1">{f.label}</label>
-                <div className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-400 cursor-not-allowed">
-                  {f.value}
-                </div>
-              </div>
-            ))}
+
+            {/* Price */}
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">$</label>
+              <input
+                type="number"
+                placeholder="Any price"
+                value={priceMax}
+                onChange={(e) => setPriceMax(e.target.value)}
+                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            {/* Free only toggle */}
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="isFree"
+                checked={isFree}
+                onChange={(e) => setIsFree(e.target.checked)}
+                className="w-4 h-4 accent-blue-600"
+              />
+              <label htmlFor="isFree" className="text-sm text-gray-600 cursor-pointer">
+                Free events only
+              </label>
+            </div>
+
+            {/* Date */}
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">Date</label>
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            {/* Category */}
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">Category</label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">All categories</option>
+                <option value="music">Music</option>
+                <option value="sports">Sports</option>
+                <option value="theater">Theater</option>
+                <option value="community">Community</option>
+                <option value="food">Food</option>
+                <option value="arts">Arts</option>
+                <option value="family">Family</option>
+              </select>
+            </div>
+
+            {/* Clear filters */}
+            {hasFilters && (
+              <button
+                onClick={() => {
+                  setSearch('')
+                  setCategory('')
+                  setDateFrom('')
+                  setIsFree(false)
+                  setPriceMax('')
+                }}
+                className="text-xs text-blue-600 hover:underline"
+              >
+                Clear all filters
+              </button>
+            )}
+
           </div>
-          <p className="text-xs text-gray-400 mt-4">No filtering applied</p>
+          <p className="text-xs text-gray-400 mt-4">
+            {hasFilters ? 'Filters active' : 'No filtering applied'}
+          </p>
         </aside>
 
         {/* Event list */}
