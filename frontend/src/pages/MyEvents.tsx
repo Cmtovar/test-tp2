@@ -5,10 +5,6 @@ import { useAuth } from '../context/useAuth'
 import { getSavedEvents, unsaveEvent } from '../api/saves'
 import type { SavedEventEntry } from '../api/saves'
 
-function isPast(datetime: string): boolean {
-  return new Date(datetime).getTime() < Date.now()
-}
-
 export default function MyEvents() {
   const { token, isAuthenticated, isLoading: authLoading } = useAuth()
   const [entries, setEntries] = useState<SavedEventEntry[]>([])
@@ -80,7 +76,6 @@ export default function MyEvents() {
           {entries.map((entry) => (
             <div
               key={entry.event_id}
-              className={isPast(entry.event.start_datetime) ? 'opacity-50' : ''}
             >
               <EventCard event={entry.event} isSaved onSaveToggle={handleUnsave} />
             </div>

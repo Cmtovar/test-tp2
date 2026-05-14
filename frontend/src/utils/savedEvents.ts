@@ -9,12 +9,18 @@ export function getSavedIds(): Set<string> {
   }
 }
 
-export function toggleSave(id: string): void {
-  const ids = getSavedIds()
-  if (ids.has(id)) {
-    ids.delete(id)
-  } else {
-    ids.add(id)
-  }
+export function persistSavedIds(ids: Set<string>): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify([...ids]))
+}
+
+export function addSavedId(id: string): void {
+  const ids = getSavedIds()
+  ids.add(id)
+  persistSavedIds(ids)
+}
+
+export function removeSavedId(id: string): void {
+  const ids = getSavedIds()
+  ids.delete(id)
+  persistSavedIds(ids)
 }
