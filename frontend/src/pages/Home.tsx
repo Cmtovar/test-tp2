@@ -18,6 +18,7 @@ export default function Home() {
   const [category, setCategory] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [isFree, setIsFree] = useState(false)
+  const [priceMin, setPriceMin] = useState('')
   const [priceMax, setPriceMax] = useState('')
 
   const loadEvents = useCallback(() => {
@@ -25,13 +26,17 @@ export default function Home() {
     const params: Record<string, string> = {}
     if (search) params.q = search
     if (category) params.category = category
-    if (dateFrom) params.date_from = dateFrom
+    if (dateFrom) {
+      params.date_from = dateFrom
+      params.date_to = dateFrom
+    }
     if (isFree) params.is_free = 'true'
+    if (priceMin) params.price_min = priceMin
     if (priceMax) params.price_max = priceMax
     fetchEvents(params)
       .then(setEvents)
       .finally(() => setLoading(false))
-  }, [search, category, dateFrom, isFree, priceMax])
+  }, [search, category, dateFrom, isFree, priceMin, priceMax])
 
   useEffect(() => {
     loadEvents()
@@ -40,7 +45,7 @@ export default function Home() {
   useEffect(() => {
     if (authLoading) return
     if (!isAuthenticated || !token) {
-      queueMicrotask(() => setSavedIds(new Set()))
+      setSavedIds(new Set())
       return
     }
     getSavedEvents(token)
@@ -73,7 +78,7 @@ export default function Home() {
     }
   }
 
-  const hasFilters = search || category || dateFrom || isFree || priceMax
+  const hasFilters = search || category || dateFrom || isFree || priceMin || priceMax
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-6">
@@ -114,16 +119,27 @@ export default function Home() {
           <h3 className="text-sm font-semibold text-gray-700 mb-3">Filters</h3>
           <div className="space-y-4">
 
-            {/* Price */}
+            {/* Price range */}
             <div>
-              <label className="block text-sm text-gray-600 mb-1">$</label>
-              <input
-                type="number"
-                placeholder="Any price"
-                value={priceMax}
-                onChange={(e) => setPriceMax(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              <label className="block text-sm text-gray-600 mb-1">Price range</label>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="Min"
+                  value={priceMin}
+                  onChange={(e) => setPriceMin(e.target.value)}
+                  className="w-1/2 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="Max"
+                  value={priceMax}
+                  onChange={(e) => setPriceMax(e.target.value)}
+                  className="w-1/2 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
             </div>
 
             {/* Free only toggle */}
@@ -178,6 +194,7 @@ export default function Home() {
                   setCategory('')
                   setDateFrom('')
                   setIsFree(false)
+                  setPriceMin('')
                   setPriceMax('')
                 }}
                 className="text-xs text-blue-600 hover:underline"

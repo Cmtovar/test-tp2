@@ -1,6 +1,7 @@
 import logging
 import time
 from datetime import date, datetime, time as dtime, timezone
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
@@ -13,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.adapters.ticketmaster_adapter import TicketmasterAdapter
 from app.config import settings
 from app.data.mock_events import MOCK_EVENTS
-from app.database import get_session_or_none
+from app.database import AsyncSessionLocal, db_is_configured, get_session_or_none
 from app.schemas.event import ErrorDetail, ErrorResponse, EventListResponse, EventOut
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ _cache_timestamp: float = 0.0
 
 ALLOWED_CATEGORIES = {"music", "sports", "theater", "community", "food", "arts", "family"}
 ALLOWED_SORTS = {"date", "price", "popularity"}
+CHICAGO_TZ = ZoneInfo("America/Chicago")
 MILES_TO_METERS = 1609.34
 DEFAULT_RADIUS_MILES = 10.0
 
@@ -43,6 +45,73 @@ EVENT_SELECT_COLUMNS = """
 
 def _row_to_event(row) -> EventOut:
     return EventOut(**dict(row._mapping))
+
+
+async def _upsert_events_to_db(events: list[EventOut]) -> None:
+    """Insert or update Ticketmaster events into the database."""
+    if not db_is_configured() or AsyncSessionLocal is None:
+        return
+    try:
+        async with AsyncSessionLocal() as session:
+            for ev in events:
+                has_location = ev.lat is not None and ev.lng is not None
+                if has_location:
+                    location_expr = "ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography"
+                else:
+                    location_expr = "NULL"
+
+                sql = (
+                    "INSERT INTO events (id, source, source_id, title, description, category, subcategory, "
+                    "start_datetime, end_datetime, venue_name, venue_address, neighborhood, "
+                    "location, price_min, price_max, is_free, ticket_url, source_url, "
+                    "image_url, status, tags, popularity) "
+                    "VALUES (:id, :source, :source_id, :title, :description, :category, :subcategory, "
+                    ":start_datetime, :end_datetime, :venue_name, :venue_address, :neighborhood, "
+                    f"{location_expr}, "
+                    ":price_min, :price_max, :is_free, :ticket_url, :source_url, "
+                    ":image_url, :status, :tags, :popularity) "
+                    "ON CONFLICT (id) DO UPDATE SET "
+                    "title = EXCLUDED.title, description = EXCLUDED.description, "
+                    "category = EXCLUDED.category, subcategory = EXCLUDED.subcategory, "
+                    "start_datetime = EXCLUDED.start_datetime, end_datetime = EXCLUDED.end_datetime, "
+                    "venue_name = EXCLUDED.venue_name, venue_address = EXCLUDED.venue_address, "
+                    "image_url = EXCLUDED.image_url, price_min = EXCLUDED.price_min, "
+                    "price_max = EXCLUDED.price_max, is_free = EXCLUDED.is_free, "
+                    "updated_at = now()"
+                )
+
+                params = {
+                    "id": str(ev.id),
+                    "source": ev.source,
+                    "source_id": str(ev.id),
+                    "title": ev.title,
+                    "description": ev.description,
+                    "category": ev.category,
+                    "subcategory": ev.subcategory,
+                    "start_datetime": ev.start_datetime,
+                    "end_datetime": ev.end_datetime,
+                    "venue_name": ev.venue_name,
+                    "venue_address": ev.venue_address,
+                    "neighborhood": ev.neighborhood,
+                    "price_min": float(ev.price_min) if ev.price_min is not None else None,
+                    "price_max": float(ev.price_max) if ev.price_max is not None else None,
+                    "is_free": ev.is_free,
+                    "ticket_url": ev.ticket_url,
+                    "source_url": ev.source_url,
+                    "image_url": ev.image_url,
+                    "status": ev.status,
+                    "tags": ev.tags,
+                    "popularity": ev.popularity,
+                }
+                if has_location:
+                    params["lat"] = ev.lat
+                    params["lng"] = ev.lng
+
+                await session.execute(text(sql), params)
+            await session.commit()
+            logger.info("Upserted %d events into database", len(events))
+    except Exception:
+        logger.exception("Failed to upsert events into database")
 
 
 def _get_mock_events() -> list[EventOut]:
@@ -98,6 +167,7 @@ def _parse_date(value: str | None, field: str) -> date | None:
 
 def _validate_filters(
     category: str | None,
+    price_min: float | None,
     price_max: float | None,
     lat: float | None,
     lng: float | None,
@@ -108,6 +178,8 @@ def _validate_filters(
             status_code=422,
             detail=f"Invalid category. Must be one of: {sorted(ALLOWED_CATEGORIES)}",
         )
+    if price_min is not None and price_min < 0:
+        raise HTTPException(status_code=422, detail="price_min must be >= 0")
     if price_max is not None and price_max < 0:
         raise HTTPException(status_code=422, detail="price_max must be >= 0")
     if lat is not None and not -90 <= lat <= 90:
@@ -127,6 +199,7 @@ def _build_db_query(
     date_from: date,
     date_to: date | None,
     is_free: bool | None,
+    price_min: float | None,
     price_max: float | None,
     lat: float | None,
     lng: float | None,
@@ -139,11 +212,11 @@ def _build_db_query(
     params: dict[str, Any] = {}
 
     where.append("start_datetime >= :date_from")
-    params["date_from"] = datetime.combine(date_from, dtime.min, tzinfo=timezone.utc)
+    params["date_from"] = datetime.combine(date_from, dtime.min, tzinfo=CHICAGO_TZ)
 
     if date_to is not None:
         where.append("start_datetime <= :date_to")
-        params["date_to"] = datetime.combine(date_to, dtime.max, tzinfo=timezone.utc)
+        params["date_to"] = datetime.combine(date_to, dtime.max, tzinfo=CHICAGO_TZ)
 
     if category is not None:
         where.append("LOWER(category) = :category")
@@ -151,6 +224,10 @@ def _build_db_query(
 
     if is_free is True:
         where.append("is_free = true")
+
+    if price_min is not None:
+        where.append("(price_max >= :price_min OR (price_max IS NULL AND price_min >= :price_min) OR is_free = true)")
+        params["price_min"] = price_min
 
     if price_max is not None:
         where.append("(price_min <= :price_max OR is_free = true)")
@@ -205,6 +282,7 @@ def _filter_in_memory(
     date_from: date,
     date_to: date | None,
     is_free: bool | None,
+    price_min: float | None,
     price_max: float | None,
     lat: float | None,
     lng: float | None,
@@ -213,9 +291,9 @@ def _filter_in_memory(
     sort: str,
 ) -> list[EventOut]:
     """Apply the same filters in-memory (used when serving from adapter/mock fallback)."""
-    df_dt = datetime.combine(date_from, dtime.min, tzinfo=timezone.utc)
+    df_dt = datetime.combine(date_from, dtime.min, tzinfo=CHICAGO_TZ)
     dt_dt = (
-        datetime.combine(date_to, dtime.max, tzinfo=timezone.utc) if date_to else None
+        datetime.combine(date_to, dtime.max, tzinfo=CHICAGO_TZ) if date_to else None
     )
     q_lower = q.lower() if q else None
     radius_m = (radius_miles or DEFAULT_RADIUS_MILES)
@@ -232,6 +310,10 @@ def _filter_in_memory(
             return False
         if is_free is True and not ev.is_free:
             return False
+        if price_min is not None:
+            pmax = float(ev.price_max) if ev.price_max is not None else (float(ev.price_min) if ev.price_min is not None else None)
+            if not (ev.is_free or (pmax is not None and pmax >= price_min)):
+                return False
         if price_max is not None:
             pm = float(ev.price_min) if ev.price_min is not None else None
             if not (ev.is_free or (pm is not None and pm <= price_max)):
@@ -257,12 +339,15 @@ def _filter_in_memory(
     def pop_key(e: EventOut) -> tuple[int, int]:
         return (1, 0) if e.popularity is None else (0, -e.popularity)
 
+    def _aware(dt: datetime) -> datetime:
+        return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
     if sort == "price":
-        filtered.sort(key=lambda e: (price_key(e), e.start_datetime))
+        filtered.sort(key=lambda e: (price_key(e), _aware(e.start_datetime)))
     elif sort == "popularity":
-        filtered.sort(key=lambda e: (pop_key(e), e.start_datetime))
+        filtered.sort(key=lambda e: (pop_key(e), _aware(e.start_datetime)))
     else:
-        filtered.sort(key=lambda e: e.start_datetime)
+        filtered.sort(key=lambda e: _aware(e.start_datetime))
     return filtered
 
 
@@ -272,7 +357,8 @@ async def list_events(
     date_from: str | None = Query(None, description="Start date filter (YYYY-MM-DD); defaults to today"),
     date_to: str | None = Query(None, description="End date filter (YYYY-MM-DD)"),
     is_free: bool | None = Query(None, description="If true, only free events"),
-    price_max: float | None = Query(None, description="Max price (or free events)"),
+    price_min: float | None = Query(None, description="Min price filter"),
+    price_max: float | None = Query(None, description="Max price filter"),
     lat: float | None = Query(None, description="Center latitude for radius search"),
     lng: float | None = Query(None, description="Center longitude for radius search"),
     radius: float | None = Query(None, description="Radius in miles (default 10 with lat/lng)"),
@@ -284,9 +370,9 @@ async def list_events(
 
     All filters compose with AND logic. By default only events from today onward are returned.
     """
-    parsed_from = _parse_date(date_from, "date_from") or datetime.now(timezone.utc).date()
+    parsed_from = _parse_date(date_from, "date_from") or datetime.now(CHICAGO_TZ).date()
     parsed_to = _parse_date(date_to, "date_to")
-    _validate_filters(category, price_max, lat, lng, sort)
+    _validate_filters(category, price_min, price_max, lat, lng, sort)
 
     if (lat is None) != (lng is None):
         raise HTTPException(
@@ -302,6 +388,7 @@ async def list_events(
         date_from=parsed_from,
         date_to=parsed_to,
         is_free=is_free,
+        price_min=price_min,
         price_max=price_max,
         lat=lat,
         lng=lng,
@@ -315,12 +402,15 @@ async def list_events(
             sql, params = _build_db_query(**filter_kwargs)
             result = await session.execute(text(sql), params)
             rows = result.fetchall()
-            items = [_row_to_event(r) for r in rows]
-            return EventListResponse(data=items, count=len(items))
+            if rows:
+                items = [_row_to_event(r) for r in rows]
+                return EventListResponse(data=items, count=len(items))
+            logger.info("No events in DB, falling back to Ticketmaster adapter")
         except Exception:
             logger.warning("Database query failed, falling back to Ticketmaster adapter")
 
     raw_items = _fetch_ticketmaster_events()
+    await _upsert_events_to_db(raw_items)
     items = _filter_in_memory(raw_items, **filter_kwargs)
     return EventListResponse(data=items, count=len(items))
 
@@ -342,12 +432,6 @@ async def get_event(
             row = result.fetchone()
             if row is not None:
                 return _row_to_event(row)
-            return JSONResponse(
-                status_code=404,
-                content=ErrorResponse(
-                    error=ErrorDetail(code="NOT_FOUND", message="Event not found")
-                ).model_dump(),
-            )
         except Exception:
             logger.warning("Database query failed, falling back to Ticketmaster adapter")
     items = _fetch_ticketmaster_events()

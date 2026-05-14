@@ -43,7 +43,7 @@ export default function EventDetail() {
   useEffect(() => {
     if (authLoading || !id) return
     if (!isAuthenticated || !token) {
-      queueMicrotask(() => setIsSaved(false))
+      setIsSaved(false)
       return
     }
     checkSaved(token, id)
@@ -66,8 +66,29 @@ export default function EventDetail() {
       setIsSaved(previous)
     }
   }
-  const handleExport = () => {
-    window.location.href = `http://localhost:8000/api/export/${id}`
+  const [calMenuOpen, setCalMenuOpen] = useState(false)
+
+  const handleAppleCalendar = async () => {
+    setCalMenuOpen(false)
+    await fetch(`/api/export/${id}/apple`)
+  }
+
+  const handleGoogleCalendar = () => {
+    if (!event) return
+    const fmtDt = (dt: string) => new Date(dt).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
+    const start = fmtDt(event.start_datetime)
+    const end = event.end_datetime
+      ? fmtDt(event.end_datetime)
+      : fmtDt(new Date(new Date(event.start_datetime).getTime() + 2 * 60 * 60 * 1000).toISOString())
+    const params = new URLSearchParams({
+      action: 'TEMPLATE',
+      text: event.title,
+      dates: `${start}/${end}`,
+      location: event.venue_address || event.venue_name || '',
+      details: [event.description || '', event.source_url || ''].filter(Boolean).join('\n\n'),
+    })
+    window.open(`https://calendar.google.com/calendar/render?${params}`, '_blank')
+    setCalMenuOpen(false)
   }
 
   if (loading) {
@@ -151,12 +172,33 @@ export default function EventDetail() {
           {formatPrice(event) && (
             <p className="font-semibold text-gray-900">{formatPrice(event)}</p>
           )}
-          <button
-            onClick={handleExport}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            📅 Add to Calendar
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => setCalMenuOpen(!calMenuOpen)}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Add to Calendar
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {calMenuOpen && (
+              <div className="absolute right-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
+                <button
+                  onClick={handleGoogleCalendar}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-t-lg"
+                >
+                  Google Calendar
+                </button>
+                <button
+                  onClick={handleAppleCalendar}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-b-lg"
+                >
+                  Apple Calendar
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -164,6 +206,7 @@ export default function EventDetail() {
       <div className="mt-8 pt-6 border-t border-gray-200">
         <Link to="/" className="text-sm text-blue-600 hover:underline">&larr; Back to events</Link>
       </div>
+
     </div>
   )
 }
